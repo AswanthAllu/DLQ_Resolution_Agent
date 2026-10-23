@@ -1,0 +1,14 @@
+{
+  "activeTarget": "local",
+  "targets": [
+    {
+      "name": "local",
+      "type": "local",
+      "host": "localhost",
+      "port": 1415,
+      "channel": "SYSTEM.ADMIN.SVRCONN",
+      "dlq": "SYSTEM.DEAD.LETTER.QUEUE",
+      "qmgr": ""
+    }
+  ]
+}

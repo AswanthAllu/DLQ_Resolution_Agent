@@ -1,0 +1,4 @@
+# Ignore environment secrets
+.env
+*.log
+__pycache__/
