@@ -79,7 +79,13 @@ def load_mq_config() -> dict:
 
 
 def run_powershell(args: list[str]) -> dict:
-    """Run the existing MQ engine and return its JSON result."""
+    """Run the existing MQ engine and return its JSON result.
+
+    stdout is expected to be a single JSON object produced by -AsJson.
+    stderr is captured separately and included in error responses so that
+    IBM MQ .NET exceptions (which PowerShell writes to stderr) surface in
+    the browser instead of silently disappearing.
+    """
     command = [
         "powershell.exe",
         "-NoProfile",
@@ -101,15 +107,21 @@ def run_powershell(args: list[str]) -> dict:
             timeout=300,
         )
         raw = completed.stdout.strip()
+        stderr = completed.stderr.strip()
+        # Log PowerShell stderr to the server console for operator visibility.
+        if stderr:
+            print(f"[PowerShell stderr] {stderr}")
         try:
             return json.loads(raw)
         except (json.JSONDecodeError, TypeError):
-            return {
-                "success": False,
-                "error": raw or completed.stderr.strip() or "Unknown PowerShell execution failure",
-            }
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"success": False, "error": str(exc)}
+            # Build a helpful error message that includes both stdout and stderr
+            # so the browser can display IBM MQ exception details.
+            detail = raw or stderr or "Unknown PowerShell execution failure"
+            return {"success": False, "error": detail}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "PowerShell triage script timed out after 300 s. The Queue Manager may be unreachable."}
+    except OSError as exc:
+        return {"success": False, "error": f"Failed to launch PowerShell: {exc}"}
 
 
 def running_queue_managers() -> dict:

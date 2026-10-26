@@ -93,16 +93,40 @@ if (-not (Test-Path $mqDll)) {
 Add-Type -Path $mqDll -ErrorAction SilentlyContinue
 
 # MQ Reason Code Reference Dictionary
+# Covers the most common reason codes seen in Dead Letter Queues.
 $ReasonLookup = @{
-    2001 = @{ Code="MQRC_ALIAS_APPL_TYPE_ERROR"; Class="Configuration"; Desc="Alias application type error." }
-    2033 = @{ Code="MQRC_NO_MSG_AVAILABLE";      Class="Transient";     Desc="No message available on queue." }
-    2035 = @{ Code="MQRC_NOT_AUTHORIZED";        Class="Configuration"; Desc="Security authority check failed. User not authorized." }
-    2052 = @{ Code="MQRC_Q_DELETED";             Class="Configuration"; Desc="Target queue was deleted." }
-    2053 = @{ Code="MQRC_Q_FULL";                Class="Transient";     Desc="Target queue reached MAXDEPTH. Temporary capacity issue." }
-    2082 = @{ Code="MQRC_UNKNOWN_ALIAS_BASE_Q";  Class="Configuration"; Desc="Unknown alias base queue." }
-    2085 = @{ Code="MQRC_UNKNOWN_OBJECT_NAME";   Class="Configuration"; Desc="Target destination queue does not exist on Queue Manager." }
-    2152 = @{ Code="MQRC_WRONG_MD_VERSION";      Class="Data";          Desc="Invalid MQMD version or corrupt message header." }
-    2153 = @{ Code="MQRC_WRONG_MD_FORMAT";       Class="Data";          Desc="Invalid MQMD format structure." }
+    # Transient / Recoverable
+    2009 = @{ Code="MQRC_CONNECTION_BROKEN";      Class="Transient";     Desc="Network connection to the Queue Manager was lost mid-operation." }
+    2033 = @{ Code="MQRC_NO_MSG_AVAILABLE";       Class="Transient";     Desc="No message available on queue at the time of the GET call." }
+    2053 = @{ Code="MQRC_Q_FULL";                 Class="Transient";     Desc="Target queue reached MAXDEPTH. Temporary capacity issue - retry after queue drains." }
+    2059 = @{ Code="MQRC_Q_MGR_NOT_AVAILABLE";    Class="Transient";     Desc="Queue Manager is not running or its TCP listener is stopped." }
+    2162 = @{ Code="MQRC_Q_MGR_QUIESCING";        Class="Transient";     Desc="Queue Manager is shutting down gracefully. Retry later." }
+    2195 = @{ Code="MQRC_UNEXPECTED_ERROR";       Class="Transient";     Desc="Unexpected internal MQ error. Check queue manager error logs (AMQERR01.LOG)." }
+    2537 = @{ Code="MQRC_CHANNEL_NOT_AVAILABLE";  Class="Transient";     Desc="SVRCONN channel is currently unavailable (max instances reached or stopped)." }
+
+    # Configuration Errors
+    2001 = @{ Code="MQRC_ALIAS_APPL_TYPE_ERROR";  Class="Configuration"; Desc="Alias application type error - check alias queue definition." }
+    2014 = @{ Code="MQRC_BACKED_OUT";             Class="Configuration"; Desc="Message has been backed out. Backout count may have exceeded the threshold." }
+    2035 = @{ Code="MQRC_NOT_AUTHORIZED";         Class="Configuration"; Desc="Security authority check failed. User not authorized for the target queue or queue manager." }
+    2052 = @{ Code="MQRC_Q_DELETED";              Class="Configuration"; Desc="Target queue was deleted after the message was put. Re-create the queue." }
+    2058 = @{ Code="MQRC_Q_MGR_NAME_ERROR";       Class="Configuration"; Desc="Queue Manager name does not match the port Queue Manager. Check port assignments." }
+    2063 = @{ Code="MQRC_SECURITY_ERROR";         Class="Configuration"; Desc="MQ security error - domain/LDAP lookup failed. Set MCAUSER to MUSR_MQADMIN on the SVRCONN channel." }
+    2082 = @{ Code="MQRC_UNKNOWN_ALIAS_BASE_Q";   Class="Configuration"; Desc="Unknown alias base queue - the queue this alias resolves to does not exist." }
+    2085 = @{ Code="MQRC_UNKNOWN_OBJECT_NAME";    Class="Configuration"; Desc="Target destination queue does not exist on the Queue Manager. Create the missing queue." }
+    2087 = @{ Code="MQRC_UNKNOWN_REMOTE_Q_MGR";   Class="Configuration"; Desc="Remote Queue Manager name is unknown. Check transmission queue and remote queue definitions." }
+    2100 = @{ Code="MQRC_XMIT_Q_WRONG_TYPE";     Class="Configuration"; Desc="Transmission queue is the wrong type. Must be a local queue." }
+    2102 = @{ Code="MQRC_NO_XMIT_Q";             Class="Configuration"; Desc="No transmission queue defined for the remote Queue Manager." }
+    2540 = @{ Code="MQRC_UNKNOWN_CHANNEL_NAME";   Class="Configuration"; Desc="SVRCONN channel name not found on the Queue Manager. Verify channel name spelling." }
+
+    # Data / Schema Errors
+    2080 = @{ Code="MQRC_TRUNCATED_MSG_FAILED";   Class="Data";          Desc="Message was truncated during GET - buffer too small or message corrupted." }
+    2110 = @{ Code="MQRC_FORMAT_ERROR";           Class="Data";          Desc="Message format does not match the format name in the MQMD. Check application encoding." }
+    2150 = @{ Code="MQRC_WRONG_FORMAT";           Class="Data";          Desc="Message body format is inconsistent with the MQMD Format field." }
+    2152 = @{ Code="MQRC_WRONG_MD_VERSION";       Class="Data";          Desc="Invalid MQMD version or corrupt message descriptor header." }
+    2153 = @{ Code="MQRC_WRONG_MD_FORMAT";        Class="Data";          Desc="Invalid MQMD format structure - message may be corrupt." }
+
+    # Poison Message
+    2016 = @{ Code="MQRC_GET_INHIBITED";          Class="Poison";        Desc="GET inhibited on the target queue - queue is intentionally blocked from consuming." }
 }
 
 # Correlate with ACE Event Log
@@ -128,21 +152,43 @@ function Search-AceLogs {
     }
 }
 
-# Parse MQDLH structure from binary payload
+# Parse MQDLH structure from binary payload.
+# The MQDLH is exactly 172 bytes in version 1 (the only version IBM MQ places on the DLQ).
+# Layout reference: IBM MQ Knowledge Center - MQDLH structure.
 function Parse-MQDLH {
     param([byte[]]$Bytes)
     if ($Bytes.Length -lt 172) { return $null }
 
+    # Verify StrucId = "DLH " (4 bytes, ASCII)
     $strucId = [System.Text.Encoding]::ASCII.GetString($Bytes, 0, 4)
     if ($strucId -ne "DLH ") { return $null }
 
+    # Version field at offset 4 (4-byte int). IBM MQ only writes version 1.
+    $version = [BitConverter]::ToInt32($Bytes, 4)
+    if ($version -ne 1) {
+        Write-Warning "Parse-MQDLH: Unexpected MQDLH version $version - parsing may be inaccurate."
+    }
+
+    # Reason at offset 8 (4-byte int).
     $reason = [BitConverter]::ToInt32($Bytes, 8)
-    $destQ  = [System.Text.Encoding]::ASCII.GetString($Bytes, 12, 48).Trim()
-    $destQM = [System.Text.Encoding]::ASCII.GetString($Bytes, 60, 48).Trim()
-    $format = [System.Text.Encoding]::ASCII.GetString($Bytes, 116, 8).Trim()
-    $putAppl= [System.Text.Encoding]::ASCII.GetString($Bytes, 128, 28).Trim()
-    $putDate= [System.Text.Encoding]::ASCII.GetString($Bytes, 156, 8).Trim()
-    $putTime= [System.Text.Encoding]::ASCII.GetString($Bytes, 164, 8).Trim()
+
+    # MQDLH field layout (corrected offsets):
+    #   DestQName    : offset  12, 48 bytes
+    #   DestQMgrName : offset  60, 48 bytes
+    #   Encoding     : offset 108,  4 bytes (int)
+    #   CodedCharSetId: offset 112,  4 bytes (int)
+    #   Format       : offset 116,  8 bytes
+    #   Flags        : offset 124,  4 bytes (int)
+    #   PutApplType  : offset 128,  4 bytes (int)
+    #   PutApplName  : offset 132, 28 bytes
+    #   PutDate      : offset 160,  8 bytes
+    #   PutTime      : offset 168,  4 bytes  => total = 172
+    $destQ   = [System.Text.Encoding]::ASCII.GetString($Bytes,  12, 48).TrimEnd([char]0, ' ')
+    $destQM  = [System.Text.Encoding]::ASCII.GetString($Bytes,  60, 48).TrimEnd([char]0, ' ')
+    $format  = [System.Text.Encoding]::ASCII.GetString($Bytes, 116,  8).TrimEnd([char]0, ' ')
+    $putAppl = [System.Text.Encoding]::ASCII.GetString($Bytes, 132, 28).TrimEnd([char]0, ' ')
+    $putDate = [System.Text.Encoding]::ASCII.GetString($Bytes, 160,  8).TrimEnd([char]0, ' ')
+    $putTime = [System.Text.Encoding]::ASCII.GetString($Bytes, 168,  4).TrimEnd([char]0, ' ')
 
     $payloadBytes = [byte[]]::new($Bytes.Length - 172)
     [Array]::Copy($Bytes, 172, $payloadBytes, 0, $payloadBytes.Length)
@@ -208,9 +254,14 @@ try {
         exit 0
     }
 
-    # Open DLQ for Browsing or Getting
-    $openOptions = [IBM.WMQ.MQC]::MQOO_BROWSE -bor [IBM.WMQ.MQC]::MQOO_INQUIRE -bor [IBM.WMQ.MQC]::MQOO_FAIL_IF_QUIESCING
-    if ($Replay -and -not $DryRun) {
+    # Open DLQ for Browsing or Destructive-Get.
+    # MQOO_INPUT_SHARED is required when the Replay action will perform a real
+    # (non-dry-run) destructive GET to remove the message from the DLQ after
+    # re-putting it to the target queue.  The -Replay switch and the -Action
+    # "Replay" API path must both be treated identically here.
+    $isLiveReplay = (($Replay -or ($Action -eq "Replay")) -and (-not $DryRun))
+    $openOptions  = [IBM.WMQ.MQC]::MQOO_BROWSE -bor [IBM.WMQ.MQC]::MQOO_INQUIRE -bor [IBM.WMQ.MQC]::MQOO_FAIL_IF_QUIESCING
+    if ($isLiveReplay) {
         $openOptions = $openOptions -bor [IBM.WMQ.MQC]::MQOO_INPUT_SHARED
     }
     $dlq = $qMgr.AccessQueue($DlqName, $openOptions)
@@ -310,13 +361,30 @@ try {
                         if (-not $AsJson) { Write-Host "  [DRY-RUN] Would re-put stripped payload into '$($dlh.DestQName)'." -ForegroundColor Cyan }
                     } else {
                         try {
-                            $targetQ = $qMgr.AccessQueue($dlh.DestQName, [IBM.WMQ.MQC]::MQOO_OUTPUT -bor [IBM.WMQ.MQC]::MQOO_FAIL_IF_QUIESCING)
+                            # PUT the stripped payload (MQDLH removed) to the original target queue.
+                            $targetQ   = $qMgr.AccessQueue($dlh.DestQName, [IBM.WMQ.MQC]::MQOO_OUTPUT -bor [IBM.WMQ.MQC]::MQOO_FAIL_IF_QUIESCING)
                             $replayMsg = [IBM.WMQ.MQMessage]::new()
                             $replayMsg.Format = $dlh.Format
                             $replayMsg.WriteBytes($dlh.PayloadBytes)
                             $pmo = [IBM.WMQ.MQPutMessageOptions]::new()
                             $targetQ.Put($replayMsg, $pmo)
                             $targetQ.Close()
+
+                            # Now destructively remove the message from the DLQ by its MsgId.
+                            # The DLQ was opened with MQOO_INPUT_SHARED for exactly this purpose.
+                            $delGmo = [IBM.WMQ.MQGetMessageOptions]::new()
+                            $delGmo.Options  = [IBM.WMQ.MQC]::MQGMO_MSG_UNDER_CURSOR -bor [IBM.WMQ.MQC]::MQGMO_NO_WAIT -bor [IBM.WMQ.MQC]::MQGMO_FAIL_IF_QUIESCING
+                            $delMsg = [IBM.WMQ.MQMessage]::new()
+                            try {
+                                $dlq.Get($delMsg, $delGmo)
+                            } catch {
+                                # Non-fatal: message was replayed but may remain on DLQ if destructive
+                                # GET fails. Log the issue but keep replayStatus as success.
+                                if (-not $AsJson) {
+                                    Write-Host "  [WARN] Could not remove replayed message from DLQ: $($_.Exception.Message)" -ForegroundColor Yellow
+                                }
+                            }
+
                             $msgInfo["replayStatus"] = "REPLAYED: Put successfully to '$($dlh.DestQName)'"
                             if (-not $AsJson) { Write-Host "  [REPLAY SUCCESS] Replayed to '$($dlh.DestQName)'." -ForegroundColor Green }
                         } catch {
