@@ -1,5 +1,5 @@
 {
-  "activeTarget": "local",
+  "activeTarget": "remote-qmgr",
   "targets": [
     {
       "name": "local",
@@ -9,6 +9,15 @@
       "channel": "SYSTEM.ADMIN.SVRCONN",
       "dlq": "SYSTEM.DEAD.LETTER.QUEUE",
       "qmgr": ""
+    },
+    {
+      "name": "remote-qmgr",
+      "type": "remote",
+      "host": "172.28.128.1",
+      "port": 1415,
+      "channel": "SYSTEM.ADMIN.SVRCONN",
+      "dlq": "SYSTEM.DEAD.LETTER.QUEUE",
+      "qmgr": "QMGR"
     }
   ]
 }

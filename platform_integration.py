@@ -1,0 +1,1 @@
+# platform_integration.py - Shared platform abstraction stub for DLQ agent integration. It provides a minimal contract that concrete platform implementations can follow. The current implementation is a no‑op dummy that simply logs calls for later extension.  # noqa: D100,D101,D102,D103

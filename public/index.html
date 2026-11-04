@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IBM MQ & ACE - DLQ Resolution Console</title>
+  <title>IBM MQ DLQ Resolution Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Header / Navigation Bar -->
+  <!-- Header / Navigation Bar: only title and Config Settings button -->
   <header class="navbar">
     <div class="nav-left">
       <div class="logo-badge">
@@ -20,52 +20,35 @@
         </svg>
       </div>
       <div>
-        <h1 class="nav-title">IBM MQ & ACE DLQ Resolution Console</h1>
-        <p class="nav-subtitle">8-Step Automated Detection, Identification, Inspection & Remediation</p>
+        <h1 class="nav-title">IBM MQ DLQ Resolution Agent</h1>
       </div>
     </div>
     <div class="nav-right">
-      <div id="connStatusBadge" class="status-pill status-disconnected">
-        <span class="status-dot"></span>
-        <span id="connStatusText">Not Connected</span>
-      </div>
       <button id="btnToggleConnPanel" class="btn btn-secondary">
         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        <span>Connection Settings</span>
-      </button>
-      <button id="btnRunTriage" class="btn btn-primary">
-        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Run Triage</span>
+        <span>Config settings</span>
       </button>
     </div>
   </header>
 
-  <!-- Primary Queue Manager Switcher Tabs -->
-  <nav class="qmgr-tabs-container">
-    <div id="qmgrTabs" class="qmgr-tabs">
-      <span class="text-muted">Discovering running queue managers...</span>
-    </div>
-    <div class="tab-status-summary">
-      <span>Currently Viewing:</span>
-      <span id="activeQMgrBanner" class="badge badge-primary">Discovering...</span>
-    </div>
-  </nav>
-
-  <!-- Connection Configuration Panel (Collapsible / Customizable) -->
+  <!-- Configuration Settings Panel (at start of dashboard, bottom of navbar) -->
   <section id="connPanel" class="card conn-card">
     <div class="card-header">
       <div class="card-title-group">
-        <h3>Queue Manager Connection Details</h3>
-        <p class="text-muted">Specify the target Queue Manager, port, SVRCONN channel, and administrative credentials</p>
+        <h3>Configuration Settings</h3>
+        <p class="text-muted">Target IBM MQ connection parameters. Changes saved here take precedence over .env config.</p>
       </div>
-      <div class="preset-buttons">
-        <span class="preset-label">Only running queue managers are shown above.</span>
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <div id="connStatusBadge" class="status-pill status-disconnected">
+          <span class="status-dot"></span>
+          <span id="connStatusText">Not Connected</span>
+        </div>
       </div>
     </div>
     <form id="connForm" class="conn-grid">
       <div class="form-group">
         <label for="qmgr">Queue Manager Name *</label>
-        <input type="text" id="qmgr" name="qmgr" value="" required placeholder="Select a running queue manager">
+        <input type="text" id="qmgr" name="qmgr" value="QMGR2" required placeholder="e.g. QMGR2">
       </div>
       <div class="form-group">
         <label for="host">Host / IP *</label>
@@ -85,7 +68,7 @@
       </div>
       <div class="form-group">
         <label for="userId">User ID</label>
-        <input type="text" id="userId" name="userId" value="mqusermchi" placeholder="mqusermchi">
+        <input type="text" id="userId" name="userId" value="" placeholder="Authorized MQ user">
       </div>
       <div class="form-group">
         <label for="password">Password</label>
@@ -94,83 +77,47 @@
           <button type="button" id="btnTogglePassword" class="btn-toggle-eye">👁️</button>
         </div>
       </div>
-      <div class="form-actions">
+      <div class="form-actions" style="grid-column: 1 / -1; display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 0.5rem;">
         <button type="button" id="btnTestConn" class="btn btn-outline">Test Connection</button>
-        <button type="submit" class="btn btn-primary">Connect & Triage</button>
+        <button type="button" id="btnSaveConfig" class="btn btn-primary">Save Settings</button>
       </div>
     </form>
     <div id="testConnAlert" class="alert-box hidden"></div>
   </section>
 
-  <!-- Metrics / Triage Stats Overview -->
-  <section class="metrics-grid">
-    <div class="metric-card">
-      <div class="metric-icon icon-depth">📦</div>
-      <div class="metric-content">
-        <span class="metric-label">DLQ Queue Depth</span>
-        <span id="metricCurDepth" class="metric-value">0</span>
-      </div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-icon icon-config">⚙️</div>
-      <div class="metric-content">
-        <span class="metric-label">Configuration Errors</span>
-        <span id="metricConfigCount" class="metric-value">0</span>
-      </div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-icon icon-transient">⏳</div>
-      <div class="metric-content">
-        <span class="metric-label">Transient Errors</span>
-        <span id="metricTransientCount" class="metric-value">0</span>
-      </div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-icon icon-safe">🚀</div>
-      <div class="metric-content">
-        <span class="metric-label">Safe for Replay</span>
-        <span id="metricSafeCount" class="metric-value">0</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- Main Messages Table Section -->
+  <!-- Bottom of config tab: Messages list stored in connected DLQ with Depth Count in corner -->
   <main class="content-card">
     <div class="table-toolbar">
       <div class="toolbar-left">
-        <h2>DLQ Message Candidate Registry</h2>
-        <span id="messageCounter" class="badge badge-info">0 messages loaded</span>
+        <h2>Messages in Dead Letter Queue</h2>
+        <span class="text-muted text-sm" style="margin-left: 0.5rem;">Auto-refreshing every 5s directly from connected DLQ</span>
       </div>
-      <div class="toolbar-right">
-        <div class="search-input-wrapper">
-          <input type="text" id="tableFilter" placeholder="Filter by Target Queue, Reason, MsgId...">
+      <div class="toolbar-right" style="display: flex; align-items: center; gap: 1rem;">
+        <!-- Depth count at corner of messages section -->
+        <div class="depth-corner-badge" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm);">
+          <span style="font-size: 0.82rem; color: var(--text-muted); font-weight: 500;">DLQ Depth:</span>
+          <span id="metricCurDepth" class="font-mono" style="font-size: 1.1rem; font-weight: 700; color: var(--accent-cyan);">0</span>
         </div>
-        <select id="classFilter">
-          <option value="ALL">All Classifications</option>
-          <option value="Configuration">Configuration</option>
-          <option value="Transient">Transient</option>
-          <option value="Data">Data / Schema</option>
-        </select>
-        <button id="btnReplayAllDryRun" class="btn btn-secondary">
-          <span>Dry-Run Replay</span>
-        </button>
+        <div class="search-input-wrapper">
+          <input type="text" id="tableFilter" placeholder="Filter messages...">
+        </div>
       </div>
     </div>
 
     <!-- Loading State -->
     <div id="loadingIndicator" class="loading-state hidden">
       <div class="spinner"></div>
-      <p id="loadingMessage">Connecting to Queue Manager and analyzing DLQ messages...</p>
+      <p id="loadingMessage">Connecting to Queue Manager and querying DLQ directly...</p>
     </div>
 
     <!-- Empty State -->
     <div id="emptyState" class="empty-state">
       <div class="empty-icon">📫</div>
       <h3>No Messages on Dead Letter Queue</h3>
-      <p class="text-muted">Click "Run Triage" to poll the configured queue manager, or change connection settings above.</p>
+      <p class="text-muted">Currently 0 messages stored on the connected Dead Letter Queue. Polling every 5 seconds.</p>
     </div>
 
-    <!-- Messages Table -->
+    <!-- Messages Table (direct from DLQ) -->
     <div class="table-responsive">
       <table id="messagesTable" class="hidden">
         <thead>
@@ -182,129 +129,21 @@
             <th>MQ Reason</th>
             <th>Classification</th>
             <th>Put Timestamp</th>
-            <th>Retry Safe</th>
-            <th>Actions</th>
+            <th>Format</th>
+            <th>Payload Preview</th>
+            <th>AI Agent</th>
           </tr>
         </thead>
         <tbody id="messagesTableBody">
-          <!-- Populated by JavaScript -->
+          <!-- Populated directly from DLQ live fetch -->
         </tbody>
       </table>
     </div>
   </main>
 
-  <!-- 8-Step Message Details Drawer / Modal -->
-  <div id="detailsModal" class="modal-backdrop hidden">
-    <div class="modal-card">
-      <div class="modal-header">
-        <div class="modal-header-left">
-          <span class="badge badge-primary">DLQ Triage Lifecycle</span>
-          <h2 id="modalMsgId" class="modal-title font-mono">Message Details</h2>
-        </div>
-        <button id="btnCloseModal" class="btn-close">&times;</button>
-      </div>
-      <div class="modal-body">
-        
-        <!-- Steps 1, 2, 3: Detection & Identification -->
-        <div class="triage-section">
-          <div class="section-badge">Step 1, 2 & 3</div>
-          <h4>Detection & Identification</h4>
-          <div class="details-grid">
-            <div class="detail-item">
-              <span class="detail-label">Message ID (Hex)</span>
-              <span id="detailMsgId" class="detail-val font-mono"></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Correlation ID</span>
-              <span id="detailCorrelId" class="detail-val font-mono"></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Intended Target Queue</span>
-              <span id="detailTargetQueue" class="detail-val highlight"></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Target Queue Manager</span>
-              <span id="detailTargetQMgr" class="detail-val"></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Original Put Application</span>
-              <span id="detailOriginalApp" class="detail-val font-mono"></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Put Timestamp</span>
-              <span id="detailTimestamp" class="detail-val"></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Format / Backout Count</span>
-              <span id="detailFormatBackout" class="detail-val"></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Step 5 & 7: MQ Error Analysis & Failure Classification -->
-        <div class="triage-section">
-          <div class="section-badge">Step 5 & 7</div>
-          <h4>MQ Reason Code & Failure Classification</h4>
-          <div class="error-banner">
-            <div class="error-banner-header">
-              <span id="detailReasonBadge" class="badge badge-error font-mono">2085 MQRC_UNKNOWN_OBJECT_NAME</span>
-              <span id="detailClassBadge" class="badge badge-warning">Configuration</span>
-            </div>
-            <p id="detailReasonDesc" class="error-desc"></p>
-          </div>
-        </div>
-
-        <!-- Step 4: Payload Inspection -->
-        <div class="triage-section">
-          <div class="section-badge">Step 4</div>
-          <h4>Payload Inspection (Decoded with MQDLH Stripped)</h4>
-          <div class="payload-box">
-            <div class="payload-toolbar">
-              <span id="payloadLengthBadge" class="text-muted font-mono">0 bytes</span>
-              <button type="button" id="btnCopyPayload" class="btn btn-xs">Copy Payload</button>
-            </div>
-            <pre id="detailPayload" class="payload-content font-mono"></pre>
-          </div>
-        </div>
-
-        <!-- Step 6: ACE Error Correlation -->
-        <div class="triage-section">
-          <div class="section-badge">Step 6</div>
-          <h4>App Connect Enterprise (ACE) Correlation</h4>
-          <div id="aceLogsContainer" class="ace-logs-list">
-            <p class="text-muted italic">No matching ACE BIP error logs found in Windows Application log for this timestamp.</p>
-          </div>
-        </div>
-
-        <!-- Step 8: Remediation & Replay Actions -->
-        <div class="triage-section">
-          <div class="section-badge">Step 8</div>
-          <h4>Decision & Remediation Replay</h4>
-          <div class="replay-card">
-            <div class="replay-status-row">
-              <span class="replay-label">Automated Replay Safety:</span>
-              <span id="detailReplaySafety" class="badge"></span>
-            </div>
-            <p id="detailReplayAdvice" class="text-muted text-sm"></p>
-            <div class="replay-controls">
-              <label class="checkbox-label">
-                <input type="checkbox" id="chkForceReplay"> Force Replay (Use if target queue has been created/repaired)
-              </label>
-              <div class="btn-group">
-                <button type="button" id="btnModalDryRun" class="btn btn-secondary">Dry-Run Replay</button>
-                <button type="button" id="btnModalReplay" class="btn btn-success">Execute Replay to Queue</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
   <!-- Toast Container -->
   <div id="toastContainer" class="toast-container"></div>
 
-  <script src="app.js?v=queue-manager-refresh-values"></script>
+  <script src="app.js?v=streamlined-dlq"></script>
 </body>
 </html>

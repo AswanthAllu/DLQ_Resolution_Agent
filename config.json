@@ -1,0 +1,89 @@
+{
+  "_comment": "Central configuration for IBM MQ & ACE DLQ Resolution Agent. Edit values here \u2014 no code changes required.",
+  "server": {
+    "port": 4000,
+    "host": "127.0.0.1"
+  },
+  "mq": {
+    "activeTarget": "active",
+    "targets": [
+      {
+        "name": "active",
+        "type": "remote",
+        "host": "127.0.0.1",
+        "port": 1415,
+        "channel": "SYSTEM.ADMIN.SVRCONN",
+        "dlq": "SYSTEM.DEAD.LETTER.QUEUE",
+        "qmgr": "QMGR2"
+      },
+      {
+        "name": "local",
+        "type": "local",
+        "host": "localhost",
+        "port": 1415,
+        "channel": "SYSTEM.ADMIN.SVRCONN",
+        "dlq": "SYSTEM.DEAD.LETTER.QUEUE",
+        "qmgr": ""
+      },
+      {
+        "name": "remote-qmgr",
+        "type": "remote",
+        "host": "172.28.128.1",
+        "port": 1415,
+        "channel": "SYSTEM.ADMIN.SVRCONN",
+        "dlq": "SYSTEM.DEAD.LETTER.QUEUE",
+        "qmgr": "QMGR"
+      }
+    ],
+    "credentials": {
+      "userId": "mqusermchi",
+      "password": ""
+    }
+  },
+  "monitoring": {
+    "pollIntervalSeconds": 15,
+    "minIntervalSeconds": 5,
+    "maxIntervalSeconds": 300,
+    "maxBrowseMessages": 500,
+    "maxRetainedMessages": 200,
+    "maxAlerts": 50
+  },
+  "agent": {
+    "model": "gemini-3.5-flash",
+    "timeoutSeconds": 180
+  },
+  "ace": {
+    "integrationNode": "",
+    "serverName": "",
+    "remoteHost": "",
+    "remoteUser": "",
+    "eventLogSource": "IBM App Connect Enterprise",
+    "lookbackMinutes": 60
+  },
+  "duplicateCheck": {
+    "dbPath": "dlq-audit.sqlite3",
+    "tableName": "processed_messages"
+  },
+  "approvals": {
+    "logPath": "approvals.log",
+    "requireApprovalForReplay": true
+  },
+  "platform": {
+    "enabled": false,
+    "baseUrl": "",
+    "apiKey": "",
+    "timeoutSeconds": 10
+  },
+  "runbooks": {
+    "2085": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2085-mqrc-unknown-object-name",
+    "2053": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2053-mqrc-q-full",
+    "2035": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2035-mqrc-not-authorized",
+    "2059": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2059-mqrc-q-mgr-not-available",
+    "2016": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2016-mqrc-get-inhibited",
+    "2009": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2009-mqrc-connection-broken",
+    "2063": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2063-mqrc-security-error",
+    "2058": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2058-mqrc-q-mgr-name-error",
+    "2537": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2537-mqrc-channel-not-available",
+    "2540": "https://www.ibm.com/docs/en/ibm-mq?topic=codes-2540-mqrc-unknown-channel-name"
+  }
+}

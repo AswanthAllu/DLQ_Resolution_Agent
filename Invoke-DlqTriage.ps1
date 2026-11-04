@@ -27,7 +27,6 @@ param(
     [string]$Action = "Triage", # "Triage", "TestConnection", "Replay"
     [string]$TargetMsgId = "",
     [switch]$Replay,
-    [switch]$ForceReplay,
     [switch]$DryRun = $true,
     [int]$MaxMessages = 50,
     [switch]$AsJson
@@ -69,6 +68,16 @@ $DlqName  = if ($DlqParam)       { $DlqParam }       elseif ($cfg["MQ_DLQ_NAME"]
 $UserId   = if ($UserParam)      { $UserParam }      else { $cfg["MQ_USER"] }
 $Password = if ($PasswordParam)  { $PasswordParam }  else { $cfg["MQ_PASSWORD"] }
 
+if (($Replay -or ($Action -eq "Replay")) -and (-not $DryRun)) {
+    $message = "Live replay is disabled until authenticated approval, trusted duplicate verification, downstream-health evidence, transactional handling, and post-replay verification are integrated."
+    if ($AsJson) {
+        @{ success = $false; error = $message } | ConvertTo-Json
+    } else {
+        Write-Error $message
+    }
+    exit 2
+}
+
 if (-not $AsJson) {
     Write-Host "====================================================================" -ForegroundColor Cyan
     Write-Host " IBM MQ & ACE - DLQ Resolution & Triage Utility" -ForegroundColor Cyan
@@ -108,9 +117,10 @@ $ReasonLookup = @{
     2001 = @{ Code="MQRC_ALIAS_APPL_TYPE_ERROR";  Class="Configuration"; Desc="Alias application type error - check alias queue definition." }
     2014 = @{ Code="MQRC_BACKED_OUT";             Class="Configuration"; Desc="Message has been backed out. Backout count may have exceeded the threshold." }
     2035 = @{ Code="MQRC_NOT_AUTHORIZED";         Class="Configuration"; Desc="Security authority check failed. User not authorized for the target queue or queue manager." }
+    2040 = @{ Code="MQRC_NOT_OPEN_FOR_SET";       Class="Configuration"; Desc="Queue not open for SET. Attempted MQSET or set operation without authorization." }
     2052 = @{ Code="MQRC_Q_DELETED";              Class="Configuration"; Desc="Target queue was deleted after the message was put. Re-create the queue." }
     2058 = @{ Code="MQRC_Q_MGR_NAME_ERROR";       Class="Configuration"; Desc="Queue Manager name does not match the port Queue Manager. Check port assignments." }
-    2063 = @{ Code="MQRC_SECURITY_ERROR";         Class="Configuration"; Desc="MQ security error - domain/LDAP lookup failed. Set MCAUSER to MUSR_MQADMIN on the SVRCONN channel." }
+    2063 = @{ Code="MQRC_SECURITY_ERROR";         Class="Configuration"; Desc="MQ security or identity validation failed. Have an MQ administrator review CONNAUTH, CHLAUTH, and the approved application identity mapping." }
     2082 = @{ Code="MQRC_UNKNOWN_ALIAS_BASE_Q";   Class="Configuration"; Desc="Unknown alias base queue - the queue this alias resolves to does not exist." }
     2085 = @{ Code="MQRC_UNKNOWN_OBJECT_NAME";    Class="Configuration"; Desc="Target destination queue does not exist on the Queue Manager. Create the missing queue." }
     2087 = @{ Code="MQRC_UNKNOWN_REMOTE_Q_MGR";   Class="Configuration"; Desc="Remote Queue Manager name is unknown. Check transmission queue and remote queue definitions." }
@@ -303,6 +313,14 @@ try {
                 backoutCount = $msg.BackoutCount
                 format       = $msg.Format.Trim()
                 hasDlh       = ($null -ne $dlh)
+                ccsid        = $msg.CharacterSet
+                encoding     = $msg.Encoding
+                messageType  = $msg.MessageType
+                persistence  = $msg.Persistence
+                priority     = $msg.Priority
+                expiry       = $msg.Expiry
+                replyToQueue = if ($msg.ReplyToQueueName) { $msg.ReplyToQueueName.Trim() } else { "" }
+                replyToQMgr  = if ($msg.ReplyToQueueManagerName) { $msg.ReplyToQueueManagerName.Trim() } else { "" }
             }
 
             if ($dlh) {
@@ -325,7 +343,7 @@ try {
                     }
                 }
 
-                $isSafeToRetry = (($failureClass -eq "Transient") -or $ForceReplay) -and ($msg.BackoutCount -lt 5)
+                $isSafeToRetry = $false
 
                 $msgInfo["targetQueue"]   = $dlh.DestQName
                 $msgInfo["targetQMgr"]    = $dlh.DestQMgrName
@@ -334,10 +352,23 @@ try {
                 $msgInfo["reasonName"]    = $reasonName
                 $msgInfo["reasonDesc"]    = $reasonDesc
                 $msgInfo["failureClass"]  = $failureClass
+                $msgInfo["originalFormat"] = $dlh.Format
                 $msgInfo["payloadText"]   = $payloadText.Substring(0, $previewLen)
                 $msgInfo["payloadLength"] = $payloadText.Length
                 $msgInfo["aceEvents"]     = $aceSummary
                 $msgInfo["isSafeToRetry"] = $isSafeToRetry
+                $msgInfo["replaySafety"] = @{
+                    status = "HOLD"
+                    blockers = @(
+                        "Authenticated human approval is not integrated."
+                        "Trusted duplicate-message verification is not integrated."
+                        "Downstream-service health evidence is not integrated."
+                        "Post-replay outcome verification is not integrated."
+                    )
+                }
+                if ($Action -eq "Replay" -and $TargetMsgId -eq $msgIdHex) {
+                    $msgInfo["replayStatus"] = "BLOCKED: Required replay-safety evidence is unavailable."
+                }
 
                 if (-not $AsJson) {
                     Write-Host "`n------------------------------------------------------------" -ForegroundColor DarkGray
@@ -350,7 +381,7 @@ try {
                 }
 
                 # Replay Logic if requested
-                $shouldReplayThis = ($Replay -or ($Action -eq "Replay")) -and ($isSafeToRetry -or $ForceReplay)
+                $shouldReplayThis = ($Replay -or ($Action -eq "Replay")) -and $isSafeToRetry
                 if ($TargetMsgId -and ($msgIdHex -ne $TargetMsgId)) {
                     $shouldReplayThis = $false
                 }
@@ -392,6 +423,37 @@ try {
                             if (-not $AsJson) { Write-Host "  [REPLAY FAILED] $($_.Exception.Message)" -ForegroundColor Red }
                         }
                     }
+                }
+            } else {
+                # Handle raw DLQ message (without MQDLH wrapper)
+                $rawText = [System.Text.Encoding]::UTF8.GetString($msgBytes)
+                $previewLen = [Math]::Min(500, $rawText.Length)
+
+                $aceEvents = Search-AceLogs -MsgId $msgIdHex -CorrelId $correlIdHex -Timestamp $putDateTime
+                $aceSummary = @()
+                foreach ($ev in $aceEvents) {
+                    $aceSummary += @{
+                        id      = $ev.Id
+                        time    = $ev.TimeCreated.ToString("yyyy-MM-dd HH:mm:ss")
+                        message = $ev.Message
+                    }
+                }
+
+                $msgInfo["targetQueue"]   = "[No MQDLH - Manual/Direct DLQ Put]"
+                $msgInfo["targetQMgr"]    = $QMgrName
+                $msgInfo["originalApp"]   = if ($msg.PutApplicationName) { $msg.PutApplicationName.Trim() } else { "Unknown" }
+                $msgInfo["reasonCode"]    = 0
+                $msgInfo["reasonName"]    = "MQRC_NONE_NO_DLH"
+                $msgInfo["reasonDesc"]    = "Message was placed directly on DLQ without an MQDLH header (typically via manual put, test tool, or non-MQ DLQ handler)."
+                $msgInfo["failureClass"]  = "Configuration"
+                $msgInfo["originalFormat"] = $msg.Format.Trim()
+                $msgInfo["payloadText"]   = $rawText.Substring(0, $previewLen)
+                $msgInfo["payloadLength"] = $msgBytes.Length
+                $msgInfo["aceEvents"]     = $aceSummary
+                $msgInfo["isSafeToRetry"] = $false
+                $msgInfo["replaySafety"]  = @{
+                    status   = "HOLD"
+                    blockers = @("Target queue unknown (no MQDLH). Destination must be specified manually by operator.")
                 }
             }
 

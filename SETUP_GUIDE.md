@@ -30,61 +30,36 @@ Ensure the following objects exist on your Queue Manager (e.g., `QMGR2` or `QMGR
 | **SVRCONN Channel** | `SYSTEM.ADMIN.SVRCONN` | Server-Connection channel used by client applications to connect. |
 | **Target Queue** | `UC2.MISSING` *(or app queue)* | The destination queue where the original messages were intended to be delivered. |
 
+### Remote Queue Manager Profile
+
+The active dashboard profile is configured for queue manager `QMGR` at
+`172.28.128.1`, using port `1415`, channel `SYSTEM.ADMIN.SVRCONN`, and
+`SYSTEM.DEAD.LETTER.QUEUE`. Port and channel were carried forward from the
+previous local setup; confirm the remote MQ listener and channel values with
+the MQ administrator. The remote host must allow network access to the listener
+port, and the configured application identity must have authority to connect
+and browse the DLQ. If connection testing fails, the remote profile remains
+selectable and the dashboard displays the diagnostic.
+
 ---
 
 ## 3. IBM MQ Security & Channel Configuration
 
-When connecting locally on Windows (especially on domain-joined machines), configure the following MQ settings to prevent `MQRC_NOT_AUTHORIZED (2035)` and `MQRC_SECURITY_ERROR (2063)`:
-
-### A. Set Channel `MCAUSER`
-Set `MCAUSER` to the local MQ administrator (`MUSR_MQADMIN`). This instructs IBM MQ to run the channel under the local service account, bypassing Active Directory domain RPC lookups:
-```mqsc
-DEFINE CHANNEL(SYSTEM.ADMIN.SVRCONN) CHLTYPE(SVRCONN) TRPTYPE(TCP) MCAUSER('MUSR_MQADMIN') REPLACE
-```
-
-### B. Disable Channel Blocking (`CHLAUTH`)
-By default, IBM MQ blocks all remote administrative connections. For local development / testing:
-```mqsc
-ALTER QMGR CHLAUTH(DISABLED)
-```
-*(Alternatively, in IBM MQ Explorer: Navigate to **QMGR2** &rarr; **Advanced** &rarr; **Channel Authentication Records** &rarr; Delete or Disable the `*MQADMIN` block rule).*
-
-### C. Configure Connection Authentication (`CONNAUTH`)
-Set client connection checking to `OPTIONAL` on the OS authentication info object:
-```mqsc
-ALTER AUTHINFO(SYSTEM.DEFAULT.AUTHINFO.IDPWOS) AUTHTYPE(IDPWOS) CHCKCLNT(OPTIONAL)
-REFRESH SECURITY TYPE(CONNAUTH)
-```
+Use your organization's approved IBM MQ security design. Grant the application
+identity only the minimum required authorities on the DLQ and target queues.
+Keep CHLAUTH enabled and do not map application channels to administrative
+service accounts. Do not weaken CONNAUTH or remove default blocking rules to
+make the POC connect; ask an MQ administrator to diagnose authorization errors
+and configure a dedicated, least-privilege identity.
 
 ---
 
-## 4. One-Click MQSC Setup Script
+## 4. MQ Object Setup
 
-Open an **Elevated (Run as Administrator)** Command Prompt or PowerShell, and execute:
-
-```cmd
-runmqsc QMGR2
-```
-
-Paste the following block and press **Enter**:
-
-```mqsc
-* 1. Ensure Dead Letter Queue exists and is assigned
-DEFINE QLOCAL(SYSTEM.DEAD.LETTER.QUEUE) REPLACE
-ALTER QMGR DEADQ(SYSTEM.DEAD.LETTER.QUEUE)
-
-* 2. Define Server-Connection Channel with local MCA user
-DEFINE CHANNEL(SYSTEM.ADMIN.SVRCONN) CHLTYPE(SVRCONN) TRPTYPE(TCP) MCAUSER('MUSR_MQADMIN') REPLACE
-
-* 3. Relax Connection Auth and Disable Remote CHLAUTH Blocking
-ALTER AUTHINFO(SYSTEM.DEFAULT.AUTHINFO.IDPWOS) AUTHTYPE(IDPWOS) CHCKCLNT(OPTIONAL)
-ALTER QMGR CHLAUTH(DISABLED)
-REFRESH SECURITY TYPE(CONNAUTH)
-
-* 4. Ensure Listener is Running
-START LISTENER(SYSTEM.DEFAULT.LISTENER.TCP)
-END
-```
+Have an MQ administrator confirm that the DLQ, target queues, listener, and
+application channel are configured according to local standards. This guide
+does not provide blanket MQSC commands that disable authentication or assign
+administrative channel identities.
 
 ---
 
@@ -113,7 +88,7 @@ MQ_HOST=localhost
 MQ_PORT=1415
 MQ_CHANNEL=SYSTEM.ADMIN.SVRCONN
 MQ_DLQ_NAME=SYSTEM.DEAD.LETTER.QUEUE
-MQ_USER=mqusermchi
+MQ_USER=your_least_privilege_user
 MQ_PASSWORD=your_password_here
 ```
 *(Note: You can also change all of these settings directly inside the Web UI at any time).*
@@ -132,25 +107,24 @@ http://localhost:4000
 
 ---
 
-## 7. The 8-Step Triage & Resolution Workflow in the UI
+## 7. DLQ Triage & Per-Message Analysis
 
-1. **Detection**: The dashboard polls `SYSTEM.DEAD.LETTER.QUEUE` and displays current queue depth and metrics.
-2. **Identification**: Extracts message metadata (`MsgId`, `CorrelId`, put timestamps, and application names).
-3. **Queue Identification**: Decodes `MQDLH.DestQName` (`UC2.MISSING`) and `MQDLH.DestQMgrName` (`QMGR2`).
-4. **Inspection**: Click **Inspect** to preview the decoded business payload with syntax highlighting and length checks.
-5. **MQ Error Analysis**: Translates raw numeric error codes (e.g. `2085`) into technical descriptions (`MQRC_UNKNOWN_OBJECT_NAME`).
-6. **ACE Error Correlation**: Automatically scans the Windows Application Event Log for correlated `BIP` events within a &plusmn;10-minute window.
-7. **Failure Classification**: Classifies each message into `Configuration`, `Transient`, or `Data`.
-8. **Decision & Replay**:
-   * Evaluates if automated retry is safe (e.g., transient network issues vs. missing queues).
-   * **Dry-Run Replay**: Simulates requeuing without affecting messages.
-   * **Execute Replay**: Once the target queue (`UC2.MISSING`) is created, re-puts the message with the `MQDLH` stripped.
+1. The dashboard discovers running queue managers and displays one selected manager's configured DLQ at a time. Continuous monitoring starts automatically for the selected manager.
+2. The monitor polls every 15 seconds, updates queue depth, counts newly observed message IDs, and raises dashboard alerts. The server process must remain running. Use **Stop Monitoring** to pause it; selecting a different queue manager switches the monitored target.
+3. Newly observed messages are retained in server memory for operator review (up to 200 messages and 50 recent alert entries). The counter and history reset when monitoring is restarted, the target changes, or the server restarts. If the browse limit is reached, the dashboard warns that the queue may contain additional messages.
+4. Click **Review message** on an alert to locate it in the message list, then click **Analyze** to request a per-message diagnosis. The prescription is concise: **Root Cause**, **Evidence and Unknowns**, **Recommended Action** (`HOLD`, `REPLAY`, or `ESCALATE`), and **Remediation Steps**.
+5. The agent must distinguish observed evidence from inference. A missing `MQDLH` means the original destination and reason are unknown. An operator must validate suggested remediation against the live environment.
+6. Monitoring, triage, and analysis only browse DLQ messages. They do not change message persistence or remove messages. This POC has no authenticated approval, trusted duplicate evidence, downstream-health evidence, or post-replay verification. The agent must not recommend `REPLAY` based on the POC data alone. Live replay remains disabled.
+
+## 8. Message and Audit Retention
+
+The application does not write operational audit events to SQLite. Monitor state, recent alerts, and observed message details are held in server memory and are cleared when monitoring is restarted or the server stops. Configuration and the optional AI API key continue to be stored in their existing local configuration files.
 
 ---
 
-## 8. CLI Alternative (Running Without UI)
+## 9. CLI Alternative (Running Without UI)
 
-You can also run the full triage pipeline directly from PowerShell:
+You can run read-only triage or a read-only replay-safety check directly from PowerShell:
 
 ```powershell
 # 1. Run full triage analysis:
@@ -159,6 +133,6 @@ powershell -ExecutionPolicy Bypass -File .\Invoke-DlqTriage.ps1
 # 2. Run simulation (Dry-Run Replay):
 powershell -ExecutionPolicy Bypass -File .\Invoke-DlqTriage.ps1 -Replay -DryRun
 
-# 3. Execute live replay back to target queues:
-powershell -ExecutionPolicy Bypass -File .\Invoke-DlqTriage.ps1 -Replay -DryRun:$false
+# Live replay is intentionally blocked until the required approval, duplicate,
+# downstream health, transactional, and post-action verification integrations exist.
 ```
